@@ -33,4 +33,7 @@ ENV/
 .idea/
 
 # Misc
-.DS_Store 
+.DS_Store
+
+# Credentials
+credentials.yaml 

@@ -12,6 +12,7 @@ import argparse
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
+import yaml
 
 from playwright.async_api import async_playwright, Browser, Page, Response, TimeoutError
 
@@ -173,6 +174,41 @@ class HomeAssistantScreenshotter:
             if self.browser:
                 await self.browser.close()
 
+def load_credentials(credentials_file: str = 'credentials.yaml') -> Dict[str, str]:
+    """
+    Load credentials from the YAML file.
+    
+    Args:
+        credentials_file: Path to the credentials file
+        
+    Returns:
+        Dict containing url, username, and password
+        
+    Raises:
+        FileNotFoundError: If credentials file doesn't exist
+        yaml.YAMLError: If credentials file is invalid
+    """
+    try:
+        with open(credentials_file, 'r') as f:
+            credentials = yaml.safe_load(f)
+            
+        required_fields = ['url', 'username', 'password']
+        missing_fields = [field for field in required_fields if field not in credentials]
+        
+        if missing_fields:
+            raise ValueError(f"Missing required fields in credentials file: {', '.join(missing_fields)}")
+            
+        return credentials
+    except FileNotFoundError:
+        logger.error(f"Credentials file '{credentials_file}' not found")
+        raise
+    except yaml.YAMLError as e:
+        logger.error(f"Error parsing credentials file: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error loading credentials: {e}")
+        raise
+
 def parse_arguments() -> argparse.Namespace:
     """
     Parse and validate command line arguments.
@@ -184,13 +220,10 @@ def parse_arguments() -> argparse.Namespace:
         description='Take a screenshot of Home Assistant',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser.add_argument('url', help='URL of Home Assistant instance')
     parser.add_argument('-o', '--output', default='ha_screenshot.png',
                       help='Output file path')
-    parser.add_argument('-u', '--username', required=True,
-                      help='Home Assistant username')
-    parser.add_argument('-p', '--password', required=True,
-                      help='Home Assistant password')
+    parser.add_argument('-c', '--credentials', default='credentials.yaml',
+                      help='Path to credentials file')
     
     return parser.parse_args()
 
@@ -202,11 +235,18 @@ async def main() -> None:
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
+    # Load credentials
+    try:
+        credentials = load_credentials(args.credentials)
+    except Exception as e:
+        logger.error(f"Failed to load credentials: {e}")
+        return
+    
     async with HomeAssistantScreenshotter(
-        url=args.url,
+        url=credentials['url'],
         output=args.output,
-        username=args.username,
-        password=args.password
+        username=credentials['username'],
+        password=credentials['password']
     ) as screenshotter:
         await screenshotter.process()
 
