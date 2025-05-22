@@ -300,6 +300,8 @@ def parse_arguments() -> argparse.Namespace:
                       help='Output file path')
     parser.add_argument('-s', '--settings', default='settings.yaml',
                       help='Path to settings file')
+    parser.add_argument('--scroll_offset', type=int,
+                      help='Number of pixels to scroll down from top (overrides settings.yaml)')
     
     return parser.parse_args()
 
@@ -314,6 +316,11 @@ async def main() -> None:
     # Load settings
     try:
         settings = load_settings(args.settings)
+        
+        # Override scroll_offset if provided in command line
+        if args.scroll_offset is not None:
+            settings['scroll_offset'] = args.scroll_offset
+            
     except Exception as e:
         logger.error(f"Failed to load settings: {e}")
         return
