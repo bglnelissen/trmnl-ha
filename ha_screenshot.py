@@ -44,6 +44,7 @@ class HomeAssistantScreenshotter:
         self.zoom = float(settings.get('zoom', 1.0))
         self.width = int(settings.get('width', 800))
         self.height = int(settings.get('height', 480))
+        self.scroll_offset = int(settings.get('scroll_offset', 0))
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
 
@@ -60,9 +61,9 @@ class HomeAssistantScreenshotter:
         """Initialize the browser with appropriate settings."""
         playwright = await async_playwright().start()
         
-        # Calculate viewport size based on zoom level
+        # Calculate viewport size based on zoom level and add extra height for scrolling
         viewport_width = int(self.width / self.zoom)
-        viewport_height = int(self.height / self.zoom)
+        viewport_height = int((self.height + self.scroll_offset) / self.zoom)
         
         # Launch browser with specific configurations
         self.browser = await playwright.chromium.launch(
@@ -163,6 +164,10 @@ class HomeAssistantScreenshotter:
         try:
             # Open the image
             with Image.open(temp_path) as img:
+                # Crop the image to remove the top offset and get the desired height
+                if self.scroll_offset > 0:
+                    img = img.crop((0, self.scroll_offset, img.width, self.scroll_offset + self.height))
+                
                 # Convert to grayscale first
                 img_gray = img.convert('L')
                 
@@ -170,7 +175,7 @@ class HomeAssistantScreenshotter:
                 # The dithering helps maintain detail in the conversion
                 img_bw = img_gray.convert('1', dither=Image.FLOYDSTEINBERG)
                 
-                # Ensure the final size matches the display dimensions
+                # Ensure the final size matches the output dimensions
                 if img_bw.size != (self.width, self.height):
                     img_bw = img_bw.resize((self.width, self.height), Image.LANCZOS)
                 
@@ -267,6 +272,7 @@ def load_settings(settings_file: str = 'settings.yaml') -> Dict[str, Any]:
         settings.setdefault('zoom', 1.0)
         settings.setdefault('width', 800)
         settings.setdefault('height', 480)
+        settings.setdefault('scroll_offset', 0)
             
         return settings
     except FileNotFoundError:
