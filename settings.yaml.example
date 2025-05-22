@@ -5,6 +5,11 @@ url: http://homeassistant.local:8123  # Your Home Assistant URL
 username: your_username                # Your Home Assistant username
 password: your_password               # Your Home Assistant password
 
+# Connection timeout settings
+timeout: 30     # Connection timeout in seconds
+retry_count: 3  # Number of login retry attempts
+retry_delay: 5  # Delay between retries in seconds
+
 # Output settings
 zoom: 1.0       # Zoom level (e.g., 0.8 for 80%)
 width: 800      # Output width in pixels

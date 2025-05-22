@@ -21,12 +21,12 @@ from typing import Optional, Dict, Any
 import yaml
 from PIL import Image
 import tempfile
+import time
 
 from playwright.async_api import async_playwright, Browser, Page, Response, TimeoutError
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -50,6 +50,9 @@ class HomeAssistantScreenshotter:
         self.width = int(settings.get('width', 800))
         self.height = int(settings.get('height', 480))
         self.scroll_offset = int(settings.get('scroll_offset', 0))
+        self.timeout = int(settings.get('timeout', 30)) * 1000  # Convert to milliseconds
+        self.retry_count = int(settings.get('retry_count', 3))
+        self.retry_delay = int(settings.get('retry_delay', 5))
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
 
@@ -85,6 +88,9 @@ class HomeAssistantScreenshotter:
         
         self.page = await context.new_page()
         
+        # Set default timeout
+        self.page.set_default_timeout(self.timeout)
+        
         # Set zoom level
         if self.zoom != 1.0:
             logger.info(f"Setting zoom level to {self.zoom * 100}%")
@@ -119,42 +125,55 @@ class HomeAssistantScreenshotter:
             logger.info("No credentials provided, skipping login")
             return False
 
-        try:
-            # Wait for the login form
-            logger.info("Waiting for login form...")
-            await self.page.wait_for_selector('ha-auth-flow', timeout=10000)
+        for attempt in range(self.retry_count):
+            try:
+                if attempt > 0:
+                    logger.info(f"Retry attempt {attempt + 1} of {self.retry_count}")
+                    # Wait before retrying
+                    await asyncio.sleep(self.retry_delay)
+                    # Reload the page for a fresh attempt
+                    await self.page.reload()
 
-            # Prepare login payload
-            login_payload = {
-                "username": self.username,
-                "password": self.password,
-                "client_id": self.url
-            }
+                # Wait for the login form
+                logger.info("Waiting for login form...")
+                await self.page.wait_for_selector('ha-auth-flow', timeout=self.timeout)
 
-            # Set up response handler for debugging
-            self.page.on("response", self.handle_auth_response)
+                # Prepare login payload
+                login_payload = {
+                    "username": self.username,
+                    "password": self.password,
+                    "client_id": self.url
+                }
 
-            # Fill in credentials
-            logger.info("Filling in credentials...")
-            await self.page.fill('input[name="username"]', self.username)
-            await self.page.fill('input[name="password"]', self.password)
+                # Set up response handler for debugging
+                self.page.on("response", self.handle_auth_response)
 
-            # Submit login form
-            logger.info("Submitting login form...")
-            await self.page.click('mwc-button')
+                # Fill in credentials
+                logger.info("Filling in credentials...")
+                await self.page.fill('input[name="username"]', self.username)
+                await self.page.fill('input[name="password"]', self.password)
 
-            # Wait for successful login
-            logger.info("Waiting for Home Assistant interface...")
-            await self.page.wait_for_selector('home-assistant', timeout=10000)
-            logger.info("Successfully logged in!")
-            return True
+                # Submit login form
+                logger.info("Submitting login form...")
+                await self.page.click('mwc-button')
 
-        except TimeoutError:
-            logger.warning("Login process timed out")
-            return False
-        except Exception as e:
-            logger.error(f"Login failed: {e}")
-            return False
+                # Wait for successful login
+                logger.info("Waiting for Home Assistant interface...")
+                await self.page.wait_for_selector('home-assistant', timeout=self.timeout)
+                logger.info("Successfully logged in!")
+                return True
+
+            except TimeoutError as e:
+                logger.warning(f"Login attempt {attempt + 1} timed out: {e}")
+                if attempt + 1 == self.retry_count:
+                    logger.error("All login attempts failed")
+                    return False
+            except Exception as e:
+                logger.error(f"Login attempt {attempt + 1} failed: {e}")
+                if attempt + 1 == self.retry_count:
+                    return False
+
+        return False
 
     def convert_to_bw(self, temp_path: str) -> None:
         """
@@ -230,7 +249,7 @@ class HomeAssistantScreenshotter:
             
             # Navigate to Home Assistant
             logger.info(f"Navigating to {self.url}")
-            await self.page.goto(self.url)
+            await self.page.goto(self.url, timeout=self.timeout)
 
             # Handle login if credentials provided
             if self.username and self.password:
@@ -278,6 +297,9 @@ def load_settings(settings_file: str = 'settings.yaml') -> Dict[str, Any]:
         settings.setdefault('width', 800)
         settings.setdefault('height', 480)
         settings.setdefault('scroll_offset', 0)
+        settings.setdefault('timeout', 30)
+        settings.setdefault('retry_count', 3)
+        settings.setdefault('retry_delay', 5)
             
         return settings
     except FileNotFoundError:
@@ -307,12 +329,17 @@ def parse_arguments() -> argparse.Namespace:
                       help='Path to settings file')
     parser.add_argument('--scroll_offset', type=int,
                       help='Number of pixels to scroll down from top (overrides settings.yaml)')
+    parser.add_argument('--debug', action='store_true',
+                      help='Enable debug logging')
     
     return parser.parse_args()
 
 async def main() -> None:
     """Main entry point for the script."""
     args = parse_arguments()
+    
+    # Set logging level based on debug flag
+    logger.setLevel(logging.DEBUG if args.debug else logging.INFO)
     
     # Ensure output directory exists
     output_path = Path(args.output)
