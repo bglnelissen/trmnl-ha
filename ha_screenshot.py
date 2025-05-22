@@ -5,6 +5,7 @@ Home Assistant Screenshot Tool
 
 This script automates the process of taking screenshots of a Home Assistant instance.
 It handles authentication, navigation, and screenshot capture using Playwright.
+The output is optimized for 800x480 e-ink displays with black and white colors.
 """
 
 import asyncio
@@ -13,6 +14,8 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
 import yaml
+from PIL import Image
+import tempfile
 
 from playwright.async_api import async_playwright, Browser, Page, Response, TimeoutError
 
@@ -133,17 +136,60 @@ class HomeAssistantScreenshotter:
             logger.error(f"Login failed: {e}")
             return False
 
+    def convert_to_bw(self, temp_path: str) -> None:
+        """
+        Convert the screenshot to black and white for e-ink display.
+        
+        Args:
+            temp_path: Path to the temporary color screenshot
+            
+        This method will convert the image to black and white using
+        dithering for better results on e-ink displays.
+        """
+        try:
+            # Open the image
+            with Image.open(temp_path) as img:
+                # Convert to grayscale first
+                img_gray = img.convert('L')
+                
+                # Convert to black and white using dithering
+                # The dithering helps maintain detail in the conversion
+                img_bw = img_gray.convert('1', dither=Image.FLOYDSTEINBERG)
+                
+                # Save the black and white image
+                img_bw.save(self.output, 'PNG', optimize=True)
+                
+            logger.info("Successfully converted to black and white")
+            
+        except Exception as e:
+            logger.error(f"Failed to convert image to black and white: {e}")
+            raise
+
     async def take_screenshot(self) -> None:
         """
-        Take a screenshot of the Home Assistant interface.
+        Take a screenshot of the Home Assistant interface and convert to black and white.
         
         Raises:
             Exception: If screenshot capture fails
         """
         try:
-            logger.info(f"Taking screenshot and saving to {self.output}")
-            await self.page.screenshot(path=self.output)
-            logger.info("Screenshot saved successfully")
+            # Create a temporary file for the initial screenshot
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                temp_path = temp_file.name
+                
+            # Take the initial screenshot in color
+            logger.info("Taking initial screenshot...")
+            await self.page.screenshot(path=temp_path)
+            
+            # Convert to black and white
+            logger.info("Converting to black and white...")
+            self.convert_to_bw(temp_path)
+            
+            # Clean up the temporary file
+            Path(temp_path).unlink()
+            
+            logger.info(f"Screenshot saved to {self.output}")
+            
         except Exception as e:
             logger.error(f"Failed to take screenshot: {e}")
             raise
