@@ -35,5 +35,5 @@ ENV/
 # Misc
 .DS_Store
 
-# Credentials
-credentials.yaml 
+# Settings
+settings.yaml 

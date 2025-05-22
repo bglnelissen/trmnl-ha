@@ -5,7 +5,7 @@ Home Assistant Screenshot Tool
 
 This script automates the process of taking screenshots of a Home Assistant instance.
 It handles authentication, navigation, and screenshot capture using Playwright.
-The output is optimized for 800x480 e-ink displays with black and white colors.
+The output is optimized for e-ink displays with black and white colors.
 """
 
 import asyncio
@@ -29,20 +29,21 @@ logger = logging.getLogger(__name__)
 class HomeAssistantScreenshotter:
     """Handles the automation of taking screenshots from a Home Assistant instance."""
     
-    def __init__(self, url: str, output: str, username: Optional[str] = None, password: Optional[str] = None):
+    def __init__(self, settings: Dict[str, Any], output: str):
         """
-        Initialize the screenshotter with connection details.
+        Initialize the screenshotter with settings.
         
         Args:
-            url: The URL of the Home Assistant instance
+            settings: Dictionary containing all settings (url, credentials, display settings)
             output: Path where the screenshot should be saved
-            username: Home Assistant username (optional)
-            password: Home Assistant password (optional)
         """
-        self.url = url.rstrip('/')
+        self.url = settings['url'].rstrip('/')
         self.output = output
-        self.username = username
-        self.password = password
+        self.username = settings['username']
+        self.password = settings['password']
+        self.zoom = float(settings.get('zoom', 1.0))
+        self.width = int(settings.get('width', 800))
+        self.height = int(settings.get('height', 480))
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
 
@@ -59,6 +60,10 @@ class HomeAssistantScreenshotter:
         """Initialize the browser with appropriate settings."""
         playwright = await async_playwright().start()
         
+        # Calculate viewport size based on zoom level
+        viewport_width = int(self.width / self.zoom)
+        viewport_height = int(self.height / self.zoom)
+        
         # Launch browser with specific configurations
         self.browser = await playwright.chromium.launch(
             args=['--disable-gpu', '--no-sandbox'],
@@ -67,12 +72,21 @@ class HomeAssistantScreenshotter:
         
         # Create a browser context with custom viewport and settings
         context = await self.browser.new_context(
-            viewport={'width': 800, 'height': 480},
+            viewport={'width': viewport_width, 'height': viewport_height},
             ignore_https_errors=True,
             user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
         )
         
         self.page = await context.new_page()
+        
+        # Set zoom level
+        if self.zoom != 1.0:
+            logger.info(f"Setting zoom level to {self.zoom * 100}%")
+            await self.page.set_viewport_size({
+                'width': viewport_width,
+                'height': viewport_height
+            })
+            await self.page.evaluate(f'document.body.style.zoom = {self.zoom}')
 
     async def handle_auth_response(self, response: Response) -> None:
         """
@@ -156,6 +170,10 @@ class HomeAssistantScreenshotter:
                 # The dithering helps maintain detail in the conversion
                 img_bw = img_gray.convert('1', dither=Image.FLOYDSTEINBERG)
                 
+                # Ensure the final size matches the display dimensions
+                if img_bw.size != (self.width, self.height):
+                    img_bw = img_bw.resize((self.width, self.height), Image.LANCZOS)
+                
                 # Save the black and white image
                 img_bw.save(self.output, 'PNG', optimize=True)
                 
@@ -220,39 +238,45 @@ class HomeAssistantScreenshotter:
             if self.browser:
                 await self.browser.close()
 
-def load_credentials(credentials_file: str = 'credentials.yaml') -> Dict[str, str]:
+def load_settings(settings_file: str = 'settings.yaml') -> Dict[str, Any]:
     """
-    Load credentials from the YAML file.
+    Load settings from the YAML file.
     
     Args:
-        credentials_file: Path to the credentials file
+        settings_file: Path to the settings file
         
     Returns:
-        Dict containing url, username, and password
+        Dict containing all settings
         
     Raises:
-        FileNotFoundError: If credentials file doesn't exist
-        yaml.YAMLError: If credentials file is invalid
+        FileNotFoundError: If settings file doesn't exist
+        yaml.YAMLError: If settings file is invalid
     """
     try:
-        with open(credentials_file, 'r') as f:
-            credentials = yaml.safe_load(f)
+        with open(settings_file, 'r') as f:
+            settings = yaml.safe_load(f)
             
+        # Required settings
         required_fields = ['url', 'username', 'password']
-        missing_fields = [field for field in required_fields if field not in credentials]
+        missing_fields = [field for field in required_fields if field not in settings]
         
         if missing_fields:
-            raise ValueError(f"Missing required fields in credentials file: {', '.join(missing_fields)}")
+            raise ValueError(f"Missing required fields in settings file: {', '.join(missing_fields)}")
+        
+        # Set default values for optional settings
+        settings.setdefault('zoom', 1.0)
+        settings.setdefault('width', 800)
+        settings.setdefault('height', 480)
             
-        return credentials
+        return settings
     except FileNotFoundError:
-        logger.error(f"Credentials file '{credentials_file}' not found")
+        logger.error(f"Settings file '{settings_file}' not found")
         raise
     except yaml.YAMLError as e:
-        logger.error(f"Error parsing credentials file: {e}")
+        logger.error(f"Error parsing settings file: {e}")
         raise
     except Exception as e:
-        logger.error(f"Error loading credentials: {e}")
+        logger.error(f"Error loading settings: {e}")
         raise
 
 def parse_arguments() -> argparse.Namespace:
@@ -268,8 +292,8 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument('-o', '--output', default='ha_screenshot.png',
                       help='Output file path')
-    parser.add_argument('-c', '--credentials', default='credentials.yaml',
-                      help='Path to credentials file')
+    parser.add_argument('-s', '--settings', default='settings.yaml',
+                      help='Path to settings file')
     
     return parser.parse_args()
 
@@ -281,18 +305,16 @@ async def main() -> None:
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Load credentials
+    # Load settings
     try:
-        credentials = load_credentials(args.credentials)
+        settings = load_settings(args.settings)
     except Exception as e:
-        logger.error(f"Failed to load credentials: {e}")
+        logger.error(f"Failed to load settings: {e}")
         return
     
     async with HomeAssistantScreenshotter(
-        url=credentials['url'],
-        output=args.output,
-        username=credentials['username'],
-        password=credentials['password']
+        settings=settings,
+        output=args.output
     ) as screenshotter:
         await screenshotter.process()
 
