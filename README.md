@@ -1,116 +1,111 @@
 # Home Assistant Screenshot Tool
 
-A Python script that automatically logs into a Home Assistant instance and takes a screenshot of the interface. The script is designed to create black and white screenshots optimized for e-ink displays.
+A Python tool to take automated screenshots of Home Assistant dashboards, optimized for e-ink displays.
 
 ## Features
 
-- Automatic login to Home Assistant
-- Screenshot capture at specified dimensions
-- Black and white conversion with dithering for e-ink displays
-- Configurable zoom level and scroll offset
-- Output size optimization
-- Secure settings management
-
-## Requirements
-
-- Python 3.7+
-- Playwright
-- PyYAML
-- Pillow
-- Home Assistant instance
+- Automated screenshot capture of Home Assistant dashboards
+- Black and white conversion with multiple dithering algorithms
+- Contrast and brightness adjustment
+- Configurable wait times for proper page loading
+- Multiple dithering options:
+  - Floyd-Steinberg (default)
+  - Ordered dithering
+  - Threshold
+  - Halftone
+  - Bayer matrix
+  - Error diffusion
+- Color inversion option
+- Configurable image dimensions and cropping
+- Secure credential handling
 
 ## Installation
 
 1. Clone this repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/bglnelissen/trmnl-ha.git
 cd trmnl-ha
 ```
 
 2. Install dependencies:
 ```bash
-pip install -r requirements.txt
+pip install playwright pillow pyyaml numpy
 playwright install chromium
 ```
 
-3. Set up your configuration:
+## Configuration
+
+Copy the example settings file and edit it with your configuration:
+
 ```bash
 cp settings.yaml.example settings.yaml
-# Edit settings.yaml with your credentials and preferences
+```
+
+Edit `settings.yaml` with your Home Assistant details and preferences:
+
+```yaml
+# Connection settings
+url: http://homeassistant.local:8123
+username: your_username
+password: your_password
+
+# Image processing settings
+contrast: 1.2    # More contrast for e-ink
+brightness: 1.0  # Normal brightness
+dither: "floyd-steinberg"  # Dithering algorithm
 ```
 
 ## Usage
 
-### Basic Usage
-
-Run the script with default settings:
+Basic usage:
 ```bash
 python3 ha_screenshot.py
 ```
 
-### Command Line Options
-
-- `-o, --output`: Output file path (default: ha_screenshot.png)
-- `-s, --settings`: Path to settings file (default: settings.yaml)
-- `--scroll_offset`: Number of pixels to scroll down from top (overrides settings.yaml)
-
-Examples:
+With options:
 ```bash
-# Custom output file
-python3 ha_screenshot.py -o custom.png
-
-# Different scroll offset
-python3 ha_screenshot.py --scroll_offset 45
-
-# Custom settings file
-python3 ha_screenshot.py -s custom_settings.yaml
+python3 ha_screenshot.py --output dashboard.png --contrast 1.2 --dither bayer
 ```
 
-### Settings File
-
-Copy `settings.yaml.example` to `settings.yaml` and customize it:
-
-```yaml
-# Connection settings
-url: http://your-ha-instance:8123
-username: your_username
-password: your_password
-
-# Output settings
-zoom: 1.0       # Zoom level (e.g., 0.8 for 80%)
-width: 800      # Output width in pixels
-height: 480     # Output height in pixels
-scroll_offset: 30 # Number of pixels to crop from top
+Show all options:
+```bash
+python3 ha_screenshot.py --help
 ```
 
-### Output Customization
+List available dithering algorithms:
+```bash
+python3 ha_screenshot.py --list-dither
+```
 
-- **Zoom Level**: Adjust the `zoom` setting to capture more or less of the interface
-- **Scroll Offset**: Remove unwanted top portions of the interface (e.g., headers)
-- **Dimensions**: Customize `width` and `height` for your specific display
-- **Black & White**: The output is automatically optimized for e-ink displays using dithering
+## Settings
 
-## Security
+All settings can be configured either in `settings.yaml` or via command line arguments:
 
-- The `settings.yaml` file is ignored by git to prevent accidental credential exposure
-- Use the example file (`settings.yaml.example`) as a template
-- Keep your credentials secure and never commit them to version control
+### Connection Settings
+- `url`: Your Home Assistant URL
+- `username`: Your Home Assistant username
+- `password`: Your Home Assistant password
+- `timeout`: Connection timeout in seconds
+- `retry_count`: Number of login retry attempts
+- `retry_delay`: Delay between retries in seconds
+
+### Page Load Settings
+- `wait_time`: Time to wait for page load (seconds)
+- `wait_for_no_activity`: Additional wait after last network activity
+- `wait_for_selector`: DOM element to wait for
+
+### Display Settings
+- `zoom`: Zoom level (e.g., 0.8 for 80%)
+- `width`: Output width in pixels
+- `height`: Output height in pixels
+- `scroll_offset`: Pixels to crop from top
+
+### Image Processing
+- `contrast`: Contrast adjustment (1.0 = normal)
+- `brightness`: Brightness adjustment (1.0 = normal)
+- `dither`: Dithering algorithm
+- `invert`: Invert colors (true/false)
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Author
-
-Bas Nelissen
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request. When contributing:
-
-1. Fork the repository
-2. Create a new branch for your feature
-3. Add your changes
-4. Submit a pull request
-
-Please ensure your code follows the existing style and includes appropriate documentation. 
+MIT License - Copyright (c) 2024 Bastiaan Nelissen 

@@ -4,7 +4,6 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
 build/
 develop-eggs/
 dist/
@@ -24,16 +23,20 @@ wheels/
 # Virtual Environment
 venv/
 ENV/
-
-# Screenshots
-*.png
+env/
+.env/
 
 # IDE
-.vscode/
 .idea/
+.vscode/
+*.swp
+*.swo
 
-# Misc
-.DS_Store
+# Project specific
+settings.yaml
+*.png
+*.jpg
+*.jpeg
 
-# Settings
-settings.yaml 
+# Logs
+*.log 

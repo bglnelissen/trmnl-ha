@@ -7,21 +7,22 @@ This script automates the process of taking screenshots of a Home Assistant inst
 It handles authentication, navigation, and screenshot capture using Playwright.
 The output is optimized for e-ink displays with black and white colors.
 
-Author: Bas Nelissen
+Author: Bastiaan Nelissen
 License: MIT
-Copyright (c) 2024 Bas Nelissen
-Repository: https://github.com/basnl/trmnl-ha
+Copyright (c) 2024 Bastiaan Nelissen
+Repository: https://github.com/bglnelissen/trmnl-ha
 """
 
 import asyncio
 import argparse
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 import yaml
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageOps
 import tempfile
 import time
+import numpy as np
 
 from playwright.async_api import async_playwright, Browser, Page, Response, TimeoutError
 
@@ -30,6 +31,156 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Available dithering algorithms
+DITHER_ALGORITHMS = {
+    'floyd-steinberg': {
+        'method': Image.Dither.FLOYDSTEINBERG,
+        'description': 'Floyd-Steinberg dithering - Good all-around dithering with error diffusion'
+    },
+    'ordered': {
+        'method': Image.Dither.ORDERED,
+        'description': 'Ordered dithering - Creates a regular pattern'
+    },
+    'threshold': {
+        'method': Image.Dither.NONE,
+        'description': 'Simple threshold - No dithering'
+    },
+    'halftone': {
+        'method': None,  # Custom implementation
+        'description': 'Halftone dithering - Simulates newspaper-style dots'
+    },
+    'bayer': {
+        'method': None,  # Custom implementation
+        'description': 'Bayer dithering - Ordered dithering with Bayer matrix'
+    },
+    'error-diffusion': {
+        'method': Image.Dither.RASTERIZE,
+        'description': 'Error diffusion dithering - Alternative to Floyd-Steinberg'
+    }
+}
+
+class ImageProcessor:
+    """Handles image processing operations."""
+    
+    @staticmethod
+    def create_bayer_matrix(size: int) -> np.ndarray:
+        """Create a Bayer dithering matrix of given size."""
+        # Start with 2x2 Bayer matrix
+        bayer = np.array([[0, 2],
+                         [3, 1]])
+        
+        # Expand to desired size
+        n = 2
+        while n < size:
+            bayer = np.repeat(np.repeat(bayer, 2, axis=0), 2, axis=1)
+            bayer = bayer * 4
+            n *= 2
+            offset = np.array([[0, 2],
+                             [3, 1]])
+            for i in range(0, n, 2):
+                for j in range(0, n, 2):
+                    bayer[i:i+2, j:j+2] += offset
+        
+        # Normalize to 0-255 range
+        return (bayer * 255 / (size * size)).astype(np.uint8)
+
+    @staticmethod
+    def apply_bayer_dithering(img: Image.Image, matrix_size: int = 8) -> Image.Image:
+        """Apply Bayer dithering to an image."""
+        # Convert image to numpy array
+        img_array = np.array(img)
+        
+        # Create and tile Bayer matrix
+        bayer = ImageProcessor.create_bayer_matrix(matrix_size)
+        h, w = img_array.shape
+        bayer_tiled = np.tile(bayer, (h // matrix_size + 1, w // matrix_size + 1))
+        bayer_tiled = bayer_tiled[:h, :w]
+        
+        # Apply dithering
+        result = np.where(img_array > bayer_tiled, 255, 0)
+        
+        return Image.fromarray(result.astype(np.uint8))
+
+    @staticmethod
+    def apply_halftone_dithering(img: Image.Image) -> Image.Image:
+        """Apply halftone dithering to an image."""
+        # Convert image to numpy array
+        img_array = np.array(img)
+        h, w = img_array.shape
+        
+        # Create output array
+        output = np.zeros((h, w), dtype=np.uint8)
+        
+        # Define halftone pattern (2x2)
+        patterns = [
+            np.array([[0, 0], [0, 0]]),  # 0%
+            np.array([[255, 0], [0, 0]]),  # 25%
+            np.array([[255, 0], [0, 255]]),  # 50%
+            np.array([[255, 255], [0, 255]]),  # 75%
+            np.array([[255, 255], [255, 255]])  # 100%
+        ]
+        
+        # Process image in 2x2 blocks
+        for i in range(0, h-1, 2):
+            for j in range(0, w-1, 2):
+                block = img_array[i:i+2, j:j+2]
+                avg = np.mean(block)
+                
+                # Select appropriate pattern
+                pattern_idx = int(avg * len(patterns) / 256)
+                pattern_idx = min(pattern_idx, len(patterns) - 1)
+                
+                output[i:i+2, j:j+2] = patterns[pattern_idx]
+        
+        return Image.fromarray(output)
+
+    @staticmethod
+    def adjust_contrast_brightness(img: Image.Image, contrast: float, brightness: float) -> Image.Image:
+        """
+        Adjust image contrast and brightness.
+        
+        Args:
+            img: Input image
+            contrast: Contrast factor (1.0 = unchanged)
+            brightness: Brightness factor (1.0 = unchanged)
+            
+        Returns:
+            Adjusted image
+        """
+        if contrast != 1.0:
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(contrast)
+        
+        if brightness != 1.0:
+            enhancer = ImageEnhance.Brightness(img)
+            img = enhancer.enhance(brightness)
+        
+        return img
+
+    @staticmethod
+    def apply_dithering(img: Image.Image, algorithm: str) -> Image.Image:
+        """
+        Apply specified dithering algorithm to image.
+        
+        Args:
+            img: Input image
+            algorithm: Name of dithering algorithm to use
+            
+        Returns:
+            Dithered image
+        """
+        if algorithm not in DITHER_ALGORITHMS:
+            raise ValueError(f"Unknown dithering algorithm: {algorithm}")
+        
+        algo_info = DITHER_ALGORITHMS[algorithm]
+        
+        if algorithm == 'halftone':
+            return ImageProcessor.apply_halftone_dithering(img)
+        elif algorithm == 'bayer':
+            return ImageProcessor.apply_bayer_dithering(img)
+        else:
+            return img.convert('1', dither=algo_info['method'])
 
 class HomeAssistantScreenshotter:
     """Handles the automation of taking screenshots from a Home Assistant instance."""
@@ -53,8 +204,17 @@ class HomeAssistantScreenshotter:
         self.timeout = int(settings.get('timeout', 30)) * 1000  # Convert to milliseconds
         self.retry_count = int(settings.get('retry_count', 3))
         self.retry_delay = int(settings.get('retry_delay', 5))
+        self.wait_time = int(settings.get('wait_time', 10))
+        self.wait_for_no_activity = int(settings.get('wait_for_no_activity', 2))
+        self.wait_for_selector = str(settings.get('wait_for_selector', 'ha-panel-lovelace'))
+        self.contrast = float(settings.get('contrast', 1.0))
+        self.brightness = float(settings.get('brightness', 1.0))
+        self.dither_algorithm = str(settings.get('dither', 'floyd-steinberg')).lower()
+        self.invert = bool(settings.get('invert', False))
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
+        self._last_network_activity = 0
+        self._network_idle = False
 
     async def __aenter__(self):
         """Set up the browser context when entering the async context."""
@@ -183,7 +343,7 @@ class HomeAssistantScreenshotter:
             temp_path: Path to the temporary color screenshot
             
         This method will convert the image to black and white using
-        dithering for better results on e-ink displays.
+        the specified dithering algorithm and image adjustments.
         """
         try:
             # Open the image
@@ -195,16 +355,24 @@ class HomeAssistantScreenshotter:
                 # Convert to grayscale first
                 img_gray = img.convert('L')
                 
-                # Convert to black and white using dithering
-                # The dithering helps maintain detail in the conversion
-                img_bw = img_gray.convert('1', dither=Image.FLOYDSTEINBERG)
+                # Apply contrast and brightness adjustments
+                img_adjusted = ImageProcessor.adjust_contrast_brightness(
+                    img_gray, self.contrast, self.brightness
+                )
+                
+                # Apply dithering
+                img_dithered = ImageProcessor.apply_dithering(img_adjusted, self.dither_algorithm)
+                
+                # Invert if requested
+                if self.invert:
+                    img_dithered = ImageOps.invert(img_dithered)
                 
                 # Ensure the final size matches the output dimensions
-                if img_bw.size != (self.width, self.height):
-                    img_bw = img_bw.resize((self.width, self.height), Image.LANCZOS)
+                if img_dithered.size != (self.width, self.height):
+                    img_dithered = img_dithered.resize((self.width, self.height), Image.LANCZOS)
                 
                 # Save the black and white image
-                img_bw.save(self.output, 'PNG', optimize=True)
+                img_dithered.save(self.output, 'PNG', optimize=True)
                 
             logger.info("Successfully converted to black and white")
             
@@ -241,6 +409,43 @@ class HomeAssistantScreenshotter:
             logger.error(f"Failed to take screenshot: {e}")
             raise
 
+    async def _handle_network_activity(self, request):
+        """Track network activity to determine when page is fully loaded."""
+        self._last_network_activity = time.time()
+        self._network_idle = False
+
+    async def _handle_network_idle(self):
+        """Handle network idle state."""
+        self._network_idle = True
+
+    async def wait_for_page_load(self):
+        """Wait for the page to be fully loaded."""
+        try:
+            # Wait for the specified selector
+            logger.info(f"Waiting for {self.wait_for_selector} element...")
+            await self.page.wait_for_selector(self.wait_for_selector, timeout=self.timeout)
+            
+            # Wait for initial load time
+            logger.info(f"Waiting {self.wait_time} seconds for page to load...")
+            await asyncio.sleep(self.wait_time)
+            
+            # Wait for network to be idle
+            if self.wait_for_no_activity > 0:
+                self.page.on('request', self._handle_network_activity)
+                self.page.on('requestfinished', self._handle_network_idle)
+                
+                start_time = time.time()
+                while time.time() - start_time < self.wait_for_no_activity:
+                    if self._network_idle and time.time() - self._last_network_activity >= self.wait_for_no_activity:
+                        break
+                    await asyncio.sleep(0.1)
+                
+                logger.info(f"Waited {self.wait_for_no_activity} seconds after last network activity")
+            
+        except Exception as e:
+            logger.warning(f"Wait condition not met: {e}")
+            logger.info("Proceeding with screenshot anyway")
+
     async def process(self) -> None:
         """Main process to navigate to Home Assistant and take a screenshot."""
         try:
@@ -256,6 +461,9 @@ class HomeAssistantScreenshotter:
                 login_success = await self.login()
                 if not login_success:
                     logger.warning("Proceeding with screenshot despite login issues")
+            
+            # Wait for page to load completely
+            await self.wait_for_page_load()
 
             # Take the screenshot
             await self.take_screenshot()
@@ -300,6 +508,13 @@ def load_settings(settings_file: str = 'settings.yaml') -> Dict[str, Any]:
         settings.setdefault('timeout', 30)
         settings.setdefault('retry_count', 3)
         settings.setdefault('retry_delay', 5)
+        settings.setdefault('wait_time', 10)
+        settings.setdefault('wait_for_no_activity', 2)
+        settings.setdefault('wait_for_selector', 'ha-panel-lovelace')
+        settings.setdefault('contrast', 1.0)
+        settings.setdefault('brightness', 1.0)
+        settings.setdefault('dither', 'floyd-steinberg')
+        settings.setdefault('invert', False)
             
         return settings
     except FileNotFoundError:
@@ -331,8 +546,27 @@ def parse_arguments() -> argparse.Namespace:
                       help='Number of pixels to scroll down from top (overrides settings.yaml)')
     parser.add_argument('--debug', action='store_true',
                       help='Enable debug logging')
+    parser.add_argument('--contrast', type=float,
+                      help='Contrast adjustment (1.0 = normal, overrides settings.yaml)')
+    parser.add_argument('--brightness', type=float,
+                      help='Brightness adjustment (1.0 = normal, overrides settings.yaml)')
+    parser.add_argument('--dither', choices=list(DITHER_ALGORITHMS.keys()),
+                      help='Dithering algorithm to use (overrides settings.yaml)')
+    parser.add_argument('--invert', action='store_true',
+                      help='Invert colors (overrides settings.yaml)')
+    parser.add_argument('--list-dither', action='store_true',
+                      help='List available dithering algorithms and exit')
     
-    return parser.parse_args()
+    args = parser.parse_args()
+    
+    if args.list_dither:
+        print("\nAvailable dithering algorithms:")
+        for name, info in DITHER_ALGORITHMS.items():
+            print(f"\n{name}:")
+            print(f"  {info['description']}")
+        exit(0)
+    
+    return args
 
 async def main() -> None:
     """Main entry point for the script."""
@@ -349,9 +583,17 @@ async def main() -> None:
     try:
         settings = load_settings(args.settings)
         
-        # Override scroll_offset if provided in command line
+        # Override settings with command line arguments
         if args.scroll_offset is not None:
             settings['scroll_offset'] = args.scroll_offset
+        if args.contrast is not None:
+            settings['contrast'] = args.contrast
+        if args.brightness is not None:
+            settings['brightness'] = args.brightness
+        if args.dither:
+            settings['dither'] = args.dither
+        if args.invert:
+            settings['invert'] = True
             
     except Exception as e:
         logger.error(f"Failed to load settings: {e}")
