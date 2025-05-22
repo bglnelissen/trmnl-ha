@@ -1,0 +1,12 @@
+# Home Assistant Screenshot Settings
+
+# Connection settings
+url: http://homeassistant.local:8123  # Your Home Assistant URL
+username: your_username                # Your Home Assistant username
+password: your_password               # Your Home Assistant password
+
+# Output settings
+zoom: 1.0       # Zoom level (e.g., 0.8 for 80%)
+width: 800      # Output width in pixels
+height: 480     # Output height in pixels
+scroll_offset: 0 # Number of pixels to crop from top (e.g., 30 to remove header) 
