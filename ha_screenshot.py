@@ -6,6 +6,11 @@ Home Assistant Screenshot Tool
 This script automates the process of taking screenshots of a Home Assistant instance.
 It handles authentication, navigation, and screenshot capture using Playwright.
 The output is optimized for e-ink displays with black and white colors.
+
+Author: Bas Nelissen
+License: MIT
+Copyright (c) 2024 Bas Nelissen
+Repository: https://github.com/basnl/trmnl-ha
 """
 
 import asyncio
