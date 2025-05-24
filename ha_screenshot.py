@@ -449,6 +449,13 @@ class HomeAssistantScreenshotter:
     async def process(self) -> None:
         """Main process to navigate to Home Assistant and take a screenshot."""
         try:
+            # Log image processing settings
+            logger.info("Image processing settings:")
+            logger.info(f"  - Contrast: {self.contrast:.2f}")
+            logger.info(f"  - Brightness: {self.brightness:.2f}")
+            logger.info(f"  - Dithering: {self.dither_algorithm} ({DITHER_ALGORITHMS[self.dither_algorithm]['description']})")
+            logger.info(f"  - Invert colors: {self.invert}")
+            
             # Set up the browser
             await self.setup_browser()
             
