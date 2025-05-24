@@ -11,7 +11,7 @@ A Python tool to take automated screenshots of Home Assistant dashboards, optimi
 - Multiple dithering options:
   - Floyd-Steinberg (default) - Good all-around dithering
   - Ordered dithering - Regular pattern
-  - Threshold/None - Pure black and white, no dithering
+  - Threshold/None - Pure black and white, no dithering (adjustable threshold)
   - Halftone - Newspaper-style dots
   - Bayer matrix - Ordered dithering pattern
   - Error diffusion - Alternative to Floyd-Steinberg
@@ -104,6 +104,7 @@ All settings can be configured either in `settings.yaml` or via command line arg
 - `contrast`: Contrast adjustment (1.0 = normal)
 - `brightness`: Brightness adjustment (1.0 = normal)
 - `dither`: Dithering algorithm
+- `threshold_value`: Black/white cutoff point when using threshold/none dithering (0-255, default 128)
 - `invert`: Invert colors (true/false)
 
 ## License

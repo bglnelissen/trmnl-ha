@@ -163,13 +163,14 @@ class ImageProcessor:
         return img
 
     @staticmethod
-    def apply_dithering(img: Image.Image, algorithm: str) -> Image.Image:
+    def apply_dithering(img: Image.Image, algorithm: str, threshold_value: int = 128) -> Image.Image:
         """
         Apply specified dithering algorithm to image.
         
         Args:
             img: Input image
             algorithm: Name of dithering algorithm to use
+            threshold_value: Threshold value for black/white conversion (0-255, default 128)
             
         Returns:
             Dithered image
@@ -183,6 +184,11 @@ class ImageProcessor:
             return ImageProcessor.apply_halftone_dithering(img)
         elif algorithm == 'bayer':
             return ImageProcessor.apply_bayer_dithering(img)
+        elif algorithm in ['threshold', 'none']:
+            # Convert to numpy array for custom thresholding
+            img_array = np.array(img)
+            result = np.where(img_array > threshold_value, 255, 0)
+            return Image.fromarray(result.astype(np.uint8))
         else:
             return img.convert('1', dither=algo_info['method'])
 
@@ -214,6 +220,7 @@ class HomeAssistantScreenshotter:
         self.contrast = float(settings.get('contrast', 1.0))
         self.brightness = float(settings.get('brightness', 1.0))
         self.dither_algorithm = str(settings.get('dither', 'floyd-steinberg')).lower()
+        self.threshold_value = int(settings.get('threshold_value', 128))  # Default middle point (0-255)
         self.invert = bool(settings.get('invert', False))
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
@@ -365,7 +372,11 @@ class HomeAssistantScreenshotter:
                 )
                 
                 # Apply dithering
-                img_dithered = ImageProcessor.apply_dithering(img_adjusted, self.dither_algorithm)
+                img_dithered = ImageProcessor.apply_dithering(
+                    img_adjusted, 
+                    self.dither_algorithm,
+                    self.threshold_value
+                )
                 
                 # Invert if requested
                 if self.invert:
@@ -455,10 +466,12 @@ class HomeAssistantScreenshotter:
         try:
             # Log image processing settings
             logger.info("Image processing settings:")
-            logger.info(f"Contrast: {self.contrast:.2f}")
-            logger.info(f"Brightness: {self.brightness:.2f}")
-            logger.info(f"Dithering: {self.dither_algorithm} ({DITHER_ALGORITHMS[self.dither_algorithm]['description']})")
-            logger.info(f"Invert colors: {self.invert}")
+            logger.info(f"  - Contrast: {self.contrast:.2f}")
+            logger.info(f"  - Brightness: {self.brightness:.2f}")
+            logger.info(f"  - Dithering: {self.dither_algorithm} ({DITHER_ALGORITHMS[self.dither_algorithm]['description']})")
+            if self.dither_algorithm in ['threshold', 'none']:
+                logger.info(f"  - Threshold value: {self.threshold_value}")
+            logger.info(f"  - Invert colors: {self.invert}")
             
             # Set up the browser
             await self.setup_browser()
@@ -525,6 +538,7 @@ def load_settings(settings_file: str = 'settings.yaml') -> Dict[str, Any]:
         settings.setdefault('contrast', 1.0)
         settings.setdefault('brightness', 1.0)
         settings.setdefault('dither', 'floyd-steinberg')
+        settings.setdefault('threshold_value', 128)
         settings.setdefault('invert', False)
             
         return settings
@@ -563,6 +577,8 @@ def parse_arguments() -> argparse.Namespace:
                       help='Brightness adjustment (1.0 = normal, overrides settings.yaml)')
     parser.add_argument('--dither', choices=list(DITHER_ALGORITHMS.keys()),
                       help='Dithering algorithm to use (overrides settings.yaml)')
+    parser.add_argument('--threshold-value', type=int, choices=range(0, 256),
+                      help='Threshold value for black/white conversion (0-255, default 128, only used with threshold/none dithering)')
     parser.add_argument('--invert', action='store_true',
                       help='Invert colors (overrides settings.yaml)')
     parser.add_argument('--list-dither', action='store_true',
@@ -603,6 +619,8 @@ async def main() -> None:
             settings['brightness'] = args.brightness
         if args.dither:
             settings['dither'] = args.dither
+        if args.threshold_value is not None:
+            settings['threshold_value'] = args.threshold_value
         if args.invert:
             settings['invert'] = True
             
