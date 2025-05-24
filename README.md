@@ -9,12 +9,12 @@ A Python tool to take automated screenshots of Home Assistant dashboards, optimi
 - Contrast and brightness adjustment
 - Configurable wait times for proper page loading
 - Multiple dithering options:
-  - Floyd-Steinberg (default)
-  - Ordered dithering
-  - Threshold
-  - Halftone
-  - Bayer matrix
-  - Error diffusion
+  - Floyd-Steinberg (default) - Good all-around dithering
+  - Ordered dithering - Regular pattern
+  - Threshold/None - Pure black and white, no dithering
+  - Halftone - Newspaper-style dots
+  - Bayer matrix - Ordered dithering pattern
+  - Error diffusion - Alternative to Floyd-Steinberg
 - Color inversion option
 - Configurable image dimensions and cropping
 - Secure credential handling

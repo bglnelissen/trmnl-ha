@@ -44,7 +44,11 @@ DITHER_ALGORITHMS = {
     },
     'threshold': {
         'method': Image.Dither.NONE,
-        'description': 'Simple threshold - No dithering'
+        'description': 'Simple threshold - No dithering (pure black and white)'
+    },
+    'none': {
+        'method': Image.Dither.NONE,
+        'description': 'Alias for threshold - No dithering (pure black and white)'
     },
     'halftone': {
         'method': None,  # Custom implementation
@@ -451,10 +455,10 @@ class HomeAssistantScreenshotter:
         try:
             # Log image processing settings
             logger.info("Image processing settings:")
-            logger.info(f"  - Contrast: {self.contrast:.2f}")
-            logger.info(f"  - Brightness: {self.brightness:.2f}")
-            logger.info(f"  - Dithering: {self.dither_algorithm} ({DITHER_ALGORITHMS[self.dither_algorithm]['description']})")
-            logger.info(f"  - Invert colors: {self.invert}")
+            logger.info(f"Contrast: {self.contrast:.2f}")
+            logger.info(f"Brightness: {self.brightness:.2f}")
+            logger.info(f"Dithering: {self.dither_algorithm} ({DITHER_ALGORITHMS[self.dither_algorithm]['description']})")
+            logger.info(f"Invert colors: {self.invert}")
             
             # Set up the browser
             await self.setup_browser()
